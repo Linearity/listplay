@@ -3,28 +3,37 @@ use differ::{Differ, Span, Tag::*};
 use lettre::message::header::ContentType;
 use lettre::transport::smtp::authentication::Credentials as LettreCredentials;
 use lettre::{Message, SmtpTransport, Transport};
+use serde::Deserialize;
 use std::env;
+use std::fs::File;
+use std::io::{self, BufRead};
 use std::thread;
 use std::time::Duration;
 
 mod track;
+
+#[derive(Deserialize)]
+struct Config {
+    playlist: String,
+    period: u64,
+    recipients: Vec<String>,
+}
 
 fn main() {
     let creds = Credentials::from_env().unwrap();
     let spotify = ClientCredsSpotify::new(creds);
     spotify.request_token().unwrap();
 
-    let recipient_addresses = &[String::from("alex@das.li"), String::from("scott.mac.32@gmail.com")];
-    let playlist_id_string = "6XB4xIqNs20vEGubRKvnAv";
-    let polling_interval = 60;
+    let config_file = File::open("config.json").expect("Unable to open config.json");
+    let config: Config = serde_json::from_reader(config_file).expect("Unable to read config.json");
 
-    let playlist_id = PlaylistId::from_id(playlist_id_string)
+    let playlist_id = PlaylistId::from_id(config.playlist)
         .expect("Invalid ID for playlist");
     let mut prev_playlist = spotify.playlist(playlist_id.clone(), None, None)
         .expect("Cannot get initial playlist");
     let mut prev_items = get_tracks(&spotify, &playlist_id);
 
-    thread::sleep(Duration::from_secs(polling_interval));
+    thread::sleep(Duration::from_secs(config.period));
     loop {
         println!("{} tracks", prev_items.len());
         if let Ok(curr_playlist) = spotify.playlist(playlist_id.clone(), None, None) {
@@ -36,7 +45,7 @@ fn main() {
                         Insert => {
                             for (index, item) in &curr_items.iter().enumerate().collect::<Vec<_>>()[s.b_start .. s.b_end] {
                                 if let Some(t) = item.track.as_ref().and_then(from_track) {
-                                    for address in recipient_addresses {
+                                    for address in &config.recipients {
                                         email_notification(
                                             address,
                                             match &t.preview_url {
@@ -51,7 +60,7 @@ fn main() {
                         Delete => {
                             for (index, item) in &prev_items.iter().enumerate().collect::<Vec<_>>()[s.a_start .. s.a_end] {
                                 if let Some(t) = item.track.as_ref().and_then(from_track) {
-                                    for address in recipient_addresses {
+                                    for address in &config.recipients {
                                         email_notification(
                                             address,
                                             match &t.preview_url {
@@ -69,7 +78,7 @@ fn main() {
                             assert!(curr_block.len() == prev_block.len());
                             let zipped = curr_block.iter().zip(prev_block.iter()).collect::<Vec<_>>();
                             for ((index, new), (_, old)) in zipped {
-                                for address in recipient_addresses {
+                                for address in &config.recipients {
                                     if let Some(new_track) = new.track.as_ref().and_then(from_track) {
                                         email_notification(
                                             address,
@@ -102,7 +111,7 @@ fn main() {
                 prev_items = curr_items;
             }
         }
-        thread::sleep(Duration::from_secs(polling_interval));
+        thread::sleep(Duration::from_secs(config.period));
     }
 }
 
@@ -155,12 +164,12 @@ fn email_notification(recipient: &String, message: String) {
     .body(message.clone())
     .unwrap();
 
-    let username = env::var("GMAIL_USERNAME").unwrap();
-    let password = env::var("GMAIL_PASSWORD").unwrap();
+    let username = env::var("MAILJET_KEY").unwrap();
+    let password = env::var("MAILJET_SECRET").unwrap();
     let creds = LettreCredentials::new(username, password);
 
     // Open a remote connection to gmail
-    let mailer = SmtpTransport::starttls_relay("smtp.gmail.com")
+    let mailer = SmtpTransport::starttls_relay("in-v3.mailjet.com")
         .unwrap()
         .credentials(creds)
         .build();
@@ -169,5 +178,29 @@ fn email_notification(recipient: &String, message: String) {
     match mailer.send(&email) {
         Ok(_) => println!("Sent email: {}", message),
         Err(e) => panic!("Could not send email: {e:?}"),
+    }
+}
+
+fn _read_recipients() -> Vec<String> {
+    match File::open("recipients.txt") {
+        Ok(recipients_list) => {
+            io::BufReader::new(recipients_list)
+                .lines()
+                .fold(
+                    Vec::new(),
+                    |lines, maybe| {
+                        let mut lines_mut = lines;
+                        match maybe {
+                            Ok(l) => lines_mut.push(l),
+                            Err(e) => println!("{}", e),
+                        }
+                        return lines_mut;
+                    }
+                )
+        }
+        Err(e) => {
+            println!("{}", e);
+            Vec::new()
+        }
     }
 }
