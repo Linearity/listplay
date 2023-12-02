@@ -526,6 +526,8 @@ dependencies = [
  "differ",
  "lettre",
  "rspotify",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
