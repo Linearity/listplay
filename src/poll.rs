@@ -157,7 +157,7 @@ fn artist_track_name(t: &FullTrack) -> String {
 
 fn email_notification(recipient: &String, message: String) {
     let email = Message::builder()
-    .from("Listplay <d.alex.stuart@gmail.com>".parse().unwrap())
+    .from("Listplay <alex@das.li>".parse().unwrap())
     .to(recipient.parse().unwrap())
     .subject("Playlist updated")
     .header(ContentType::TEXT_PLAIN)
