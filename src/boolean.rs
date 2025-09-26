@@ -1,33 +1,44 @@
 use std::collections::HashMap;
 use std::hash::Hash;
+use tokio;
 
-use rspotify::{
-        model::*,
-        prelude::*,
-        ClientCredsSpotify,
-        Credentials,
-    };
+use rspotify::{model::*, prelude::*, ClientCredsSpotify, Credentials};
 
 mod track;
 
-fn main() {
+fn playlist_id(id: &str, num: u8) -> PlaylistId<'_> {
+    PlaylistId::from_id(id).expect(&format!("Invalid ID for playlist {}: {}", num, id))
+}
+
+#[tokio::main]
+async fn main() {
     // May require the `env-file` feature enabled if the environment variables
     // aren't configured manually.
-    let creds = Credentials::from_env().unwrap();
+    // let creds = Credentials::from_env().unwrap();
+    let creds = Credentials::new(
+        "8d52127f8d8c4edeb2b44917c22bafc2",
+        "e42314f259d942899b5a78d45e4c9ee3",
+    );
     // let oauth = OAuth::from_env(scopes!("user-library-read")).unwrap();
 
     let spotify = ClientCredsSpotify::new(creds);
 
     // This function requires the `cli` feature enabled.
-    spotify.request_token().unwrap();
+    spotify.request_token().await.unwrap();
+
+    let playlist_items = async |id: PlaylistId| {
+        spotify
+            .playlist_items_manual(id, None, None, None, None)
+            .await
+    };
 
     // Typical iteration, no extra boilerplate needed.
-    let playlist_1_id = PlaylistId::from_id("5OH6M4lM3i7EcZZyxAiwN0").expect("Invalid ID for playlist 1");
-    let playlist_2_id = PlaylistId::from_id("6Hm1s5RVZtuZmqFm82YvcT").expect("Invalid ID for playlist 2");
-    let playlist_3_id = PlaylistId::from_id("1Fx1khIihbsq47XVcZiIzq").expect("Invalid ID for playlist 3");
-    let result_1 = spotify.playlist_items_manual(playlist_1_id, None, None, None, None);
-    let result_2 = spotify.playlist_items_manual(playlist_2_id, None, None, None, None);
-    let result_3 = spotify.playlist_items_manual(playlist_3_id, None, None, None, None);
+    let playlist_1_id = playlist_id("5OH6M4lM3i7EcZZyxAiwN0", 1);
+    let playlist_2_id = playlist_id("6Hm1s5RVZtuZmqFm82YvcT", 2);
+    let playlist_3_id = playlist_id("1Fx1khIihbsq47XVcZiIzq", 3);
+    let result_1 = playlist_items(playlist_1_id).await;
+    let result_2 = playlist_items(playlist_2_id).await;
+    let result_3 = playlist_items(playlist_3_id).await;
     println!("Items:");
     if let (Ok(page_1), Ok(page_2), Ok(page_3)) = (result_1, result_2, result_3) {
         let tracks_1 = tabulate_tracks(track::cat_tracks(page_1.items));
@@ -36,10 +47,13 @@ fn main() {
         let intersection = intersect_tables(tracks_1, tracks_2);
         let difference = table_difference(intersection, tracks_3);
         for track in difference.values() {
-            print!("{}", match track.artists.first() {
-                Some(artist) => &artist.name,
-                None => "Unknown artist"
-            });
+            print!(
+                "{}",
+                match track.artists.first() {
+                    Some(artist) => &artist.name,
+                    None => "Unknown artist",
+                }
+            );
             if let Some(tail) = track.artists.get(1..) {
                 for artist in tail {
                     print!(", {}", artist.name);
